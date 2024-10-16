@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<mule xmlns:wss="http://www.mulesoft.org/schema/mule/wss" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit-soap="http://www.mulesoft.org/schema/mule/apikit-soap" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/apikit-soap http://www.mulesoft.org/schema/mule/apikit-soap/current/mule-apikit-soap.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/wss http://www.mulesoft.org/schema/mule/wss/current/mule-wss.xsd">
+    <http:listener-config name="api-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="8081"/>
+    </http:listener-config>
+    <apikit-soap:config name="soapkit-config" port="CalculatorSoap" service="BMIService" wsdlLocation="test.wsdl" soapVersion="SOAP11"/>
+    <wss:outbound-config name="WSS_Outbound" doc:name="WSS Outbound" doc:id="2d8a9143-f238-4fa8-ac88-ce2c7c412238">
+		<wss:signature-config keyIdentifier="DIRECT_REFERENCE" algorithm="RSAwithSHA1" digestAlgorithm="SHA256">
+			<wss:keystore-config path="testring.jks" password="test" alias="test" keyPassword="test" />
+			<wss:wss-parts >
+				<wss:wss-part namespace="http://mulesoft.org/calculator" localname="CalculateAdultBMIResponse" encode="ELEMENT"/>
+			</wss:wss-parts>
+		</wss:signature-config>
+	</wss:outbound-config>
+	<wss:inbound-config name="WSS_Inbound" doc:name="WSS Inbound" doc:id="abbcef93-528f-4079-9659-3c7f4781ad44" extractSecurityHeader="true">
+		<wss:verify-signature-config>
+			<wss:truststore-config path="testring.jks" password="test"/>
+		</wss:verify-signature-config>
+	</wss:inbound-config>
+	<flow name="api-main">
+        <http:listener config-ref="api-httpListenerConfig" path="/BMIService/CalculatorSoap">
+            <http:response statusCode="#[attributes.additionalTransportData.statusCode default 200]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[attributes.protocolHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[attributes.additionalTransportData.statusCode default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[attributes.protocolHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <apikit-soap:router config-ref="soapkit-config">
+            <apikit-soap:attributes><![CDATA[#[%dw 2.0
+              output application/java
+              ---
+              {
+                  headers: attributes.headers,
+                  method: attributes.method,
+                  queryString: attributes.queryString
+            }]]]></apikit-soap:attributes>
+        </apikit-soap:router>
+		<logger level="INFO" doc:name="Logger" doc:id="b5a91fa2-6ed9-4d24-80fb-7dfb5d0da4cf" message="Data #[payload]" />
+		<wss:apply-wss doc:name="Apply WSS" doc:id="1ba85d0b-52a8-4f93-ab74-99b1b86df8f4" config-ref="WSS_Outbound" version="SOAP_11"/>
+		<logger level="INFO" doc:name="Logger" doc:id="06db10a1-662f-4dbc-b737-d3df10bff662" message="Applied #[payload]"/>
+    </flow>
+    <flow name="testFlow" doc:id="368a0264-289f-4678-a6f6-771c976ec274" >
+		<http:listener doc:name="Listener" doc:id="b2b3d53f-e6dc-4f3b-a816-5354a0d4037e" config-ref="api-httpListenerConfig" path="test2"/>
+		<logger level="INFO" doc:name="Logger" doc:id="52c472c0-7eb7-4d94-93af-efee60cdac65" message="The Payload #[payload]"/>
+		<wss:validate-wss doc:name="Validate WSS" doc:id="44979b71-05fd-430d-a2a3-cbf712d3804a" config-ref="WSS_Inbound" version="SOAP_11" />
+	</flow>
+	<flow name="CalculateAdultBMI:\soapkit-config">
+		<ee:transform doc:name="Transform Message" doc:id="7ff26ad3-0341-4e99-9cbc-6b5cf9158cd8" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/soap+xml
+ns soap http://www.w3.org/2003/05/soap-envelope
+ns ns0 http://mulesoft.org/calculator
+---
+{
+	
+		ns0#CalculateAdultBMIResponse: {
+			bmi: 1,
+			category: "test"
+		}
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="c9519ea3-d8f6-4e93-92bd-99cc7657fab5" message="Logger #[payload]"/>
+    </flow>
+	<sub-flow name="testSub_Flow" doc:id="67a51ea3-4546-41ad-9c1c-a1efd8217854" >
+		<ee:transform>
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+ns soap http://schemas.xmlsoap.org/soap/envelope
+---
+{
+    body: {
+        soap#Fault: {
+            faultcode: "soap:Server",
+            faultstring: "Operation [CalculateAdultBMI:\soapkit-config] not implemented"
+        }
+    } write "application/xml"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+	</sub-flow>
+</mule>
